@@ -2,20 +2,14 @@ pipeline {
     agent any
 
     environment {
-        TENANT_ID = 'your-tenant-id'
-        CLIENT_ID = 'your-client-id'
+        TENANT_ID = credentials('tenant-id')
+        CLIENT_ID = credentials('client-id')
         CLIENT_SECRET = credentials('entra-secret')
     }
 
     stages {
 
-        stage('Checkout Code') {
-            steps {
-                git 'https://github.com/your-username/your-repo.git'
-            }
-        }
-
-        stage('Run PowerShell Script') {
+        stage('Run Script') {
             steps {
                 powershell '''
                 ./create-users.ps1 `
