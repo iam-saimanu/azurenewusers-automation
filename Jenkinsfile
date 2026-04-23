@@ -11,11 +11,11 @@ pipeline {
 
         stage('Run Script') {
             steps {
-                powershell '''
-                ./create-users.ps1 `
-                -tenantId $env:TENANT_ID `
-                -clientId $env:CLIENT_ID `
-                -clientSecret $env:CLIENT_SECRET
+                bat '''
+                powershell -ExecutionPolicy Bypass -File create-users.ps1 ^
+                -tenantId %TENANT_ID% ^
+                -clientId %CLIENT_ID% ^
+                -clientSecret %CLIENT_SECRET%
                 '''
             }
         }
