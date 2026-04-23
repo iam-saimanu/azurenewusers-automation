@@ -1,121 +1,193 @@
-# 🚀 Azure Entra ID User Provisioning Automation (DevOps Project)
+# 🚀 Azure Entra ID Bulk User Automation using PowerShell & Jenkins
 
 ## 📌 Project Overview
 
-This project automates user creation in **Microsoft Entra ID (Azure AD)** using a CI/CD pipeline. It demonstrates real-world DevOps practices by integrating cloud identity management with automation tools like Jenkins and GitHub.
+This project automates **bulk user creation** in Microsoft Entra ID using:
+
+* PowerShell script
+* CSV file (user data)
+* GitHub (code repository)
+* Jenkins (CI/CD pipeline)
+
+👉 Goal: Automatically create users in Entra ID whenever the pipeline is triggered.
 
 ---
 
-## 🛠️ Tech Stack
+## 🏗️ Architecture Diagram
 
-* Microsoft Azure (Entra ID)
-* Microsoft Graph API
-* PowerShell
-* Jenkins (CI/CD)
-* GitHub (Version Control)
-
----
-
-## 🔄 Workflow Architecture
-
-1. Code is pushed to GitHub repository
-2. Jenkins pipeline is triggered
-3. PowerShell script executes
-4. Microsoft Graph API creates a new user in Azure Entra ID
-
----
-
-## 🔐 Authentication Method
-
-This project uses **Azure App Registration** with:
-
-* Tenant ID
-* Client ID
-* Client Secret
-
-Authentication is done via **OAuth 2.0 Client Credentials Flow** to securely access Microsoft Graph API.
+```
+        +-------------------+
+        |   GitHub Repo     |
+        | (Code + CSV File) |
+        +--------+----------+
+                 |
+                 | (Webhook / Manual Trigger)
+                 ↓
+        +-------------------+
+        |     Jenkins       |
+        |  CI/CD Pipeline   |
+        +--------+----------+
+                 |
+                 | Runs PowerShell Script
+                 ↓
+        +-------------------+
+        | PowerShell Script |
+        | (create-users.ps1)|
+        +--------+----------+
+                 |
+                 | Calls Microsoft Graph API
+                 ↓
+        +-----------------------------+
+        | Microsoft Entra ID (Azure) |
+        |     Users Created         |
+        +-----------------------------+
+```
 
 ---
 
 ## 📁 Project Structure
 
 ```
-azure-user-automation/
+entra-user-automation/
 │
-├── create-user.ps1     # PowerShell script to create user
-└── Jenkinsfile         # CI/CD pipeline definition
+├── create-users.ps1   # PowerShell script to create users
+├── users.csv          # Input file with user details
+├── Jenkinsfile        # CI/CD pipeline definition
+└── README.md          # Project documentation
 ```
 
 ---
 
-## ⚙️ Setup Instructions
+## ⚙️ Prerequisites
 
-### 🔹 Step 1: Azure Configuration
+* Azure Account
+* Entra ID Tenant
+* App Registration with:
 
-* Go to Azure Portal → Microsoft Entra ID
-* Create **App Registration**
-* Generate **Client Secret**
-* Add API Permission:
-
-  * `User.ReadWrite.All` (Application Permission)
-* Click **Grant Admin Consent**
+  * `User.ReadWrite.All` permission
+  * Admin Consent granted
+* Jenkins installed
+* GitHub repository
 
 ---
 
-### 🔹 Step 2: Script Configuration
+## 🔐 Secure Credentials Setup
 
-Update the following values inside `create-user.ps1`:
+In Jenkins → Manage Credentials, add:
+
+| Credential ID  | Description     |
+| -------------- | --------------- |
+| `tenant-id`    | Azure Tenant ID |
+| `client-id`    | App (Client) ID |
+| `entra-secret` | Client Secret   |
+
+---
+
+## 📄 users.csv Format
+
+```csv
+DisplayName,UserPrincipalName,MailNickname,Password
+John Doe,john@yourtenant.onmicrosoft.com,john,Password@123
+Jane Smith,jane@yourtenant.onmicrosoft.com,jane,Password@123
+```
+
+---
+
+## 🧠 PowerShell Script (create-users.ps1)
 
 ```powershell
-$tenantId = "<TENANT_ID>"
-$clientId = "<CLIENT_ID>"
-$clientSecret = "<CLIENT_SECRET>"
-```
+param (
+    [string]$tenantId,
+    [string]$clientId,
+    [string]$clientSecret
+)
 
-Also update:
+# Get Access Token
+$body = @{
+    grant_type    = "client_credentials"
+    scope         = "https://graph.microsoft.com/.default"
+    client_id     = $clientId
+    client_secret = $clientSecret
+}
 
-```
-userPrincipalName = "devopsuser@yourtenant.onmicrosoft.com"
+$tokenResponse = Invoke-RestMethod -Method Post `
+    -Uri "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token" `
+    -Body $body
+
+$accessToken = $tokenResponse.access_token
+
+# Read CSV
+$users = Import-Csv -Path "$PSScriptRoot/users.csv"
+
+foreach ($u in $users) {
+
+    $user = @{
+        accountEnabled = $true
+        displayName    = $u.DisplayName
+        mailNickname   = $u.MailNickname
+        userPrincipalName = $u.UserPrincipalName
+        passwordProfile = @{
+            forceChangePasswordNextSignIn = $true
+            password = $u.Password
+        }
+    }
+
+    try {
+        Invoke-RestMethod -Method Post `
+            -Uri "https://graph.microsoft.com/v1.0/users" `
+            -Headers @{Authorization = "Bearer $accessToken"} `
+            -Body ($user | ConvertTo-Json -Depth 10) `
+            -ContentType "application/json"
+
+        Write-Host "Created: $($u.UserPrincipalName)"
+    }
+    catch {
+        Write-Host "Failed: $($u.UserPrincipalName)"
+        Write-Host $_
+    }
+}
 ```
 
 ---
 
-### 🔹 Step 3: GitHub Setup
-
-* Create a new repository
-* Name: `azure-user-automation`
-* Upload:
-
-  * `create-user.ps1`
-  * `Jenkinsfile`
-
----
-
-### 🔹 Step 4: Jenkins Setup
-
-* Install Jenkins locally or on server
-* Create a **Pipeline Job**
-* Add your GitHub repository URL
-
----
-
-### 🔹 Step 5: Add Jenkins Pipeline
+## ⚙️ Jenkins Pipeline (Jenkinsfile)
 
 ```groovy
 pipeline {
     agent any
 
+    environment {
+        TENANT_ID = credentials('tenant-id')
+        CLIENT_ID = credentials('client-id')
+        CLIENT_SECRET = credentials('entra-secret')
+    }
+
     stages {
-        stage('Clone Repo') {
+
+        stage('Check Files') {
             steps {
-                git 'https://github.com/<your-username>/azure-user-automation.git'
+                bat 'dir'
             }
         }
 
-        stage('Create Azure User') {
+        stage('Run Script') {
             steps {
-                bat 'powershell -ExecutionPolicy Bypass -File create-user.ps1'
+                bat '''
+                powershell -ExecutionPolicy Bypass -File create-users.ps1 ^
+                -tenantId %TENANT_ID% ^
+                -clientId %CLIENT_ID% ^
+                -clientSecret %CLIENT_SECRET%
+                '''
             }
+        }
+    }
+
+    post {
+        success {
+            echo 'Users created successfully'
+        }
+        failure {
+            echo 'Pipeline failed'
         }
     }
 }
@@ -123,67 +195,47 @@ pipeline {
 
 ---
 
-## ▶️ Execution Steps
+## 🔄 Workflow (Step-by-Step)
 
-* Trigger Jenkins build manually OR via webhook
-* Pipeline runs PowerShell script
-* Script calls Microsoft Graph API
-* User is created in Azure Entra ID
-
----
-
-## ✅ Output
-
-* Automated creation of users in Azure directory
-* Reduced manual effort for identity provisioning
+1. Developer updates `users.csv` in GitHub
+2. Pipeline is triggered (manual or webhook)
+3. Jenkins pulls latest code
+4. Jenkins runs PowerShell script
+5. Script calls Microsoft Graph API
+6. Users are created in Entra ID
 
 ---
 
-## 📈 Use Cases
+## ✅ Key Features
 
-* Employee onboarding automation
-* Identity lifecycle management
-* DevOps-driven cloud automation
-
----
-
-## 🔮 Future Enhancements
-
-* Dynamic user input via Jenkins parameters
-* Bulk user creation using CSV
-* Email notifications after user creation
-* Integration with ITSM tools (e.g., ServiceNow)
-* Logging and error handling improvements
+* Automated bulk user provisioning
+* Secure credential management using Jenkins
+* CI/CD pipeline integration
+* Scalable and reusable automation
 
 ---
 
-## 🧠 Key Learnings
+## 🚀 Future Enhancements
 
-* CI/CD pipeline integration with cloud services
-* Secure API authentication using OAuth 2.0
-* Infrastructure automation using PowerShell
-* Real-world DevOps project implementation
+* Add logging and reports
+* Email notifications on success/failure
+* Validate CSV before execution
+* Integrate with Azure Key Vault
+* Add rollback mechanism
 
 ---
 
-## 📢 Author
+## 📌 Conclusion
+
+This project demonstrates a real-world DevOps use case by combining:
+
+* Cloud identity management
+* Automation scripting
+* CI/CD pipeline integration
+
+## 👤 Author
+
 Sai Manogna TL
 
----
-
-## 🎯 Resume Highlights
-
-* Automated Azure user provisioning using Microsoft Graph API
-* Built CI/CD pipeline using Jenkins
-* Integrated GitHub with automation workflows
-* Implemented secure authentication using App Registration
-
----
-
-## ⭐ How to Use
-
-1. Clone the repository
-2. Update credentials in script
-3. Run Jenkins pipeline
-4. Verify user creation in Azure Entra ID
-
+- GitHub: https://github.com/iam-saimanu/azurenewusers-automation 
+- Project: Azure Entra ID Bulk User Automation
