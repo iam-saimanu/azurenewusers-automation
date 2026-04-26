@@ -64,10 +64,15 @@ foreach ($u in $users) {
     }
     catch {
     Write-Host "❌ Failed: $($u.UserPrincipalName)"
-    Write-Host "Error Message:"
-    Write-Host $_.Exception.Response.GetResponseStream() | % { 
-        $reader = New-Object System.IO.StreamReader($_)
-        $reader.ReadToEnd()
+    Write-Host $_.Exception.Message
+
+    if ($_.Exception.Response) {
+        $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+        $reader.BaseStream.Position = 0
+        $reader.DiscardBufferedData()
+        $responseBody = $reader.ReadToEnd()
+        Write-Host "Full Error:"
+        Write-Host $responseBody
     }
 }
 }
