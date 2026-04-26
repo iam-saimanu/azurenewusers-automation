@@ -63,7 +63,11 @@ foreach ($u in $users) {
         Write-Host "✅ Created: $($u.UserPrincipalName)"
     }
     catch {
-        Write-Host "❌ Failed: $($u.UserPrincipalName)"
-        Write-Host $_
+    Write-Host "❌ Failed: $($u.UserPrincipalName)"
+    Write-Host "Error Message:"
+    Write-Host $_.Exception.Response.GetResponseStream() | % { 
+        $reader = New-Object System.IO.StreamReader($_)
+        $reader.ReadToEnd()
     }
+}
 }
